@@ -131,37 +131,38 @@ internal class ChangeComparator : Comparator<Pair<ChangeEvent, ChangeQuery>> {
       o1: Pair<ChangeEvent, ChangeQuery>,
       o2: Pair<ChangeEvent, ChangeQuery>
   ): Int {
-    val c1 = o1.first.event as EntityEvent<*>?
-    val c2 = o2.first.event as EntityEvent<*>?
-
-    return when {
-      c1 == null && c2 == null -> 0
-      c1 != null && c2 == null -> 1
-      c1 == null && c2 != null -> -1
-      else ->
-          when {
-            c1!!.operation == EntityOperation.CREATE && c2!!.operation == EntityOperation.CREATE ->
-                if (c1.eventType == EventType.NODE && c2.eventType == EventType.RELATIONSHIP) 1
-                else if (c1.eventType == EventType.RELATIONSHIP && c2.eventType == EventType.NODE)
-                    -1
-                else 0
-            c1.operation == EntityOperation.CREATE && c2!!.operation == EntityOperation.UPDATE -> -1
-            c1.operation == EntityOperation.CREATE && c2!!.operation == EntityOperation.DELETE -> -1
-            c1.operation == EntityOperation.UPDATE && c2!!.operation == EntityOperation.UPDATE ->
-                if (c1.eventType == EventType.NODE && c2.eventType == EventType.RELATIONSHIP) 1
-                else if (c1.eventType == EventType.RELATIONSHIP && c2.eventType == EventType.NODE)
-                    -1
-                else 0
-            c1.operation == EntityOperation.UPDATE && c2!!.operation == EntityOperation.CREATE -> 1
-            c1.operation == EntityOperation.UPDATE && c2!!.operation == EntityOperation.DELETE -> -1
-            c1.operation == EntityOperation.DELETE && c2!!.operation == EntityOperation.DELETE ->
-                if (c1.eventType == EventType.NODE && c2.eventType == EventType.RELATIONSHIP) -1
-                else if (c1.eventType == EventType.RELATIONSHIP && c2.eventType == EventType.NODE) 1
-                else 0
-            c1.operation == EntityOperation.DELETE && c2!!.operation == EntityOperation.CREATE -> 1
-            c1.operation == EntityOperation.DELETE && c2!!.operation == EntityOperation.UPDATE -> 1
-            else -> 0
-          }
-    }
+    return o1.first.order().compareTo(o2.first.order())
   }
+
+  /**
+   * We explicitly re-order incoming changes to match the following;
+   * 1. RELATIONSHIP DELETES
+   * 2. NODE DELETES
+   * 3. NODE UPDATES
+   * 4. RELATIONSHIP UPDATES
+   * 5. NODE CREATES
+   * 6. RELATIONSHIP CREATES
+   */
+  private fun ChangeEvent.order(): Int =
+      when (val event = this.event) {
+        is EntityEvent<*> ->
+            when {
+              event.operation == EntityOperation.DELETE &&
+                  event.eventType == EventType.RELATIONSHIP -> 0x010
+              event.operation == EntityOperation.DELETE && event.eventType == EventType.NODE ->
+                  0x020
+              event.operation == EntityOperation.UPDATE && event.eventType == EventType.NODE ->
+                  0x030
+              event.operation == EntityOperation.UPDATE &&
+                  event.eventType == EventType.RELATIONSHIP -> 0x040
+              event.operation == EntityOperation.CREATE && event.eventType == EventType.NODE ->
+                  0x050
+              event.operation == EntityOperation.CREATE &&
+                  event.eventType == EventType.RELATIONSHIP -> 0x060
+              else ->
+                  throw IllegalArgumentException(
+                      "unexpected event type and operation combination: (${event.eventType}, ${event.operation}).")
+            }
+        else -> 0
+      }
 }
