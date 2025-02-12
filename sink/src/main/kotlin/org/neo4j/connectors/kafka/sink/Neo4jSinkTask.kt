@@ -16,6 +16,8 @@
  */
 package org.neo4j.connectors.kafka.sink
 
+import org.apache.kafka.clients.consumer.OffsetAndMetadata
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.connect.sink.SinkRecord
 import org.apache.kafka.connect.sink.SinkTask
 import org.neo4j.connectors.kafka.configuration.helpers.VersionUtil
@@ -27,6 +29,7 @@ class Neo4jSinkTask : SinkTask() {
 
   private lateinit var settings: Map<String, String>
   private lateinit var config: SinkConfiguration
+  private lateinit var offsets: MutableMap<TopicPartition, OffsetAndMetadata>
 
   override fun version(): String = VersionUtil.version(Neo4jSinkTask::class.java)
 
@@ -35,6 +38,7 @@ class Neo4jSinkTask : SinkTask() {
 
     settings = props!!
     config = SinkConfiguration(settings)
+    offsets = mutableMapOf()
   }
 
   override fun stop() {
@@ -79,6 +83,26 @@ class Neo4jSinkTask : SinkTask() {
           }
         }
       }
+    } finally {
+      handled.forEach { m ->
+        offsets.merge(
+            TopicPartition(m.record.topic(), m.record.originalKafkaPartition()),
+            OffsetAndMetadata(m.record.originalKafkaOffset())) { old, new ->
+              if (new.offset() > old.offset()) {
+                new
+              } else {
+                old
+              }
+            }
+      }
     }
+  }
+
+  override fun preCommit(
+      currentOffsets: Map<TopicPartition?, OffsetAndMetadata?>?
+  ): Map<TopicPartition, OffsetAndMetadata> {
+    val latestOffsets = offsets.toMap()
+    offsets.clear()
+    return latestOffsets
   }
 }
